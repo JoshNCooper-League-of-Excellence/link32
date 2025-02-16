@@ -1,3 +1,0 @@
-
-main:
-    jmp main1

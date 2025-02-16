@@ -56,7 +56,6 @@ fn read_object_file(path: &str) -> io::Result<ObjectFile> {
 
 fn read_symbols(buffer: &[u8], mut offset: usize, length: u32) -> HashMap<String, u32> {
     let mut symbols = HashMap::new();
-    println!("reading symbols:              offset={offset}, length={length}, buffer length={}", buffer.len());
 
     for _ in 0..length {
         let name_len = buffer[offset] as usize;
@@ -75,14 +74,11 @@ fn read_symbols(buffer: &[u8], mut offset: usize, length: u32) -> HashMap<String
         symbols.insert(name, address);
     }
 
-    println!("done reading symbols:          offset={offset}, length={length}, buffer length={}", buffer.len());
-
     symbols
 }
 
 fn read_relocations(buffer: &[u8], mut offset: usize, length: u32) -> HashMap<String, Vec<u32>> {
     let mut relocations: HashMap<String, Vec<u32>> = HashMap::new();
-    println!("reading relocations:           offset={offset}, length={length}, buffer length={}", buffer.len());
     for _ in 0..length {
         let symbol_name_length = buffer[offset] as usize;
         offset += 1;
@@ -115,8 +111,6 @@ fn read_relocations(buffer: &[u8], mut offset: usize, length: u32) -> HashMap<St
             }
         }
     }
-
-    println!("done reading relocations:        offset={offset}, length={length}, buffer length={}", buffer.len());
     relocations
 }
 
