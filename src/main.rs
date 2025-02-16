@@ -11,7 +11,6 @@ struct Header {
     relocation_offset: u32,
     relocation_length: u32,
     code_offset: u32,
-    code_length: u32,
 }
 
 impl Header {
@@ -23,7 +22,6 @@ impl Header {
             relocation_offset: read_u32(&mut iter),
             relocation_length: read_u32(&mut iter),
             code_offset: read_u32(&mut iter),
-            code_length: read_u32(&mut iter),
         }
     }
 }
@@ -48,7 +46,7 @@ fn read_object_file(path: &str) -> io::Result<ObjectFile> {
     let symbols = read_symbols(&buffer, header.symbol_offset, header.symbol_length);
     let relocations = read_relocations(&buffer, header.relocation_offset, header.relocation_length);
     let code = buffer
-        [header.code_offset as usize..header.code_offset as usize + header.code_length as usize]
+        [header.code_offset as usize..]
         .to_vec();
 
     Ok(ObjectFile {

@@ -22,7 +22,6 @@
             "args": [
                 "-o",
                 "main",
-                "linked.o",
                 "main.o"
             ],
             "cwd": "${workspaceFolder}"
