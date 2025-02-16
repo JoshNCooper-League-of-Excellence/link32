@@ -45,11 +45,9 @@ fn read_object_file(path: &str) -> io::Result<ObjectFile> {
     file.read_to_end(&mut buffer)?;
 
     let header = Header::from_slice(&buffer[0..std::mem::size_of::<Header>()]);
-    let symbols = read_symbols(&buffer, header.symbol_offset, header.symbol_length);
-    let relocations = read_relocations(&buffer, header.relocation_offset, header.relocation_length);
-    let code = buffer
-        [header.code_offset as usize..header.code_offset as usize + header.code_length as usize]
-        .to_vec();
+    let symbols = read_symbols(&buffer, header.symbol_offset as usize, header.symbol_length);
+    let relocations = read_relocations(&buffer, header.relocation_offset as usize, header.relocation_length);
+    let code = buffer[header.code_offset as usize..].to_vec();
 
     Ok(ObjectFile {
         symbols,
@@ -58,58 +56,59 @@ fn read_object_file(path: &str) -> io::Result<ObjectFile> {
     })
 }
 
-fn read_symbols(buffer: &[u8], offset: u32, length: u32) -> HashMap<String, u32> {
+fn read_symbols(buffer: &[u8], mut offset: usize, length: u32) -> HashMap<String, u32> {
     let mut symbols = HashMap::new();
-    let mut pos = offset as usize;
+    println!("reading symbols:              offset={offset}, length={length}, buffer length={}", buffer.len());
 
     for _ in 0..length {
-        let name_len = buffer[pos] as usize;
-        pos += 1;
-        let name = String::from_utf8(buffer[pos..pos + name_len].to_vec()).unwrap();
-        pos += name_len;
+        let name_len = buffer[offset] as usize;
+        offset += 1;
+        let name = String::from_utf8(buffer[offset..offset + name_len].to_vec()).unwrap();
+        offset += name_len;
 
         let address = u32::from_le_bytes([
-            buffer[pos],
-            buffer[pos + 1],
-            buffer[pos + 2],
-            buffer[pos + 3],
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
         ]);
-        pos += 4;
+        offset += 4;
 
         symbols.insert(name, address);
     }
 
+    println!("done reading symbols:          offset={offset}, length={length}, buffer length={}", buffer.len());
+
     symbols
 }
 
-fn read_relocations(buffer: &[u8], offset: u32, length: u32) -> HashMap<String, Vec<u32>> {
+fn read_relocations(buffer: &[u8], mut offset: usize, length: u32) -> HashMap<String, Vec<u32>> {
     let mut relocations: HashMap<String, Vec<u32>> = HashMap::new();
-    let mut pos = offset as usize;
-
+    println!("reading relocations:           offset={offset}, length={length}, buffer length={}", buffer.len());
     for _ in 0..length {
-        let symbol_name_length = buffer[pos] as usize;
-        pos += 1;
+        let symbol_name_length = buffer[offset] as usize;
+        offset += 1;
 
         let symbol_name =
-            String::from_utf8(buffer[pos..pos + symbol_name_length].to_vec()).unwrap();
-        pos += symbol_name_length;
+            String::from_utf8(buffer[offset..offset + symbol_name_length].to_vec()).unwrap();
+        offset += symbol_name_length;
 
         let locations_length = u32::from_le_bytes([
-            buffer[pos],
-            buffer[pos + 1],
-            buffer[pos + 2],
-            buffer[pos + 3],
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
         ]);
-        pos += 4;
+        offset += 4;
 
         for _ in 0..locations_length {
             let relocation = u32::from_le_bytes([
-                buffer[pos],
-                buffer[pos + 1],
-                buffer[pos + 2],
-                buffer[pos + 3],
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
             ]);
-            pos += 4;
+            offset += 4;
 
             if let Some(vec) = relocations.get_mut(&symbol_name) {
                 vec.push(relocation);
@@ -118,6 +117,8 @@ fn read_relocations(buffer: &[u8], offset: u32, length: u32) -> HashMap<String, 
             }
         }
     }
+
+    println!("done reading relocations:        offset={offset}, length={length}, buffer length={}", buffer.len());
     relocations
 }
 
