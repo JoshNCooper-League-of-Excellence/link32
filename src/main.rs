@@ -7,27 +7,35 @@ use std::process::exit;
 #[repr(C)]
 struct Header {
     symbol_offset: u32,
+    symbol_length: u32,
     relocation_offset: u32,
+    relocation_length: u32,
     code_offset: u32,
+    code_length: u32,
 }
 
 impl Header {
     fn from_slice(slice: &[u8]) -> Self {
-        let mut header = Header {
-            symbol_offset: 0,
-            relocation_offset: 0,
-            code_offset: 0,
-        };
-        header.symbol_offset = u32::from_le_bytes([slice[5], slice[6], slice[7], slice[8]]);
-        header.relocation_offset = u32::from_le_bytes([slice[9], slice[10], slice[11], slice[12]]);
-        header.code_offset = u32::from_le_bytes([slice[13], slice[14], slice[15], slice[16]]);
-        header
+        let mut iter = slice.iter();
+        Header {
+            symbol_offset: read_u32(&mut iter),
+            symbol_length: read_u32(&mut iter),
+            relocation_offset: read_u32(&mut iter),
+            relocation_length: read_u32(&mut iter),
+            code_offset: read_u32(&mut iter),
+            code_length: read_u32(&mut iter),
+        }
     }
+}
+
+fn read_u32(iter: &mut std::slice::Iter<u8>) -> u32 {
+    let bytes: Vec<u8> = iter.take(4).cloned().collect();
+    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
 struct ObjectFile {
     symbols: HashMap<String, u32>,
-    relocations: Vec<(String, u32)>,
+    relocations: HashMap<String, Vec<u32>>,
     code: Vec<u8>,
 }
 
@@ -36,10 +44,12 @@ fn read_object_file(path: &str) -> io::Result<ObjectFile> {
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
 
-    let header = Header::from_slice(&buffer[0..17]);
-    let symbols = read_symbols(&buffer, header.symbol_offset);
-    let relocations = read_relocations(&buffer, header.relocation_offset);
-    let code = buffer[header.code_offset as usize..].to_vec();
+    let header = Header::from_slice(&buffer[0..std::mem::size_of::<Header>()]);
+    let symbols = read_symbols(&buffer, header.symbol_offset, header.symbol_length);
+    let relocations = read_relocations(&buffer, header.relocation_offset, header.relocation_length);
+    let code = buffer
+        [header.code_offset as usize..header.code_offset as usize + header.code_length as usize]
+        .to_vec();
 
     Ok(ObjectFile {
         symbols,
@@ -48,33 +58,16 @@ fn read_object_file(path: &str) -> io::Result<ObjectFile> {
     })
 }
 
-fn read_symbols(buffer: &[u8], offset: u32) -> HashMap<String, u32> {
+fn read_symbols(buffer: &[u8], offset: u32, length: u32) -> HashMap<String, u32> {
     let mut symbols = HashMap::new();
-    let buffer_len = buffer.len();
-    if (offset as usize) + 4 > buffer_len {
-        panic!("Invalid symbol table offset, {offset}, buffer length {buffer_len}");
-    }
-    let count = u32::from_le_bytes([
-        buffer[offset as usize],
-        buffer[offset as usize + 1],
-        buffer[offset as usize + 2],
-        buffer[offset as usize + 3],
-    ]);
-    let mut pos = offset as usize + 4;
-    for i in 0..count {
-        if pos >= buffer_len {
-            panic!("Unexpected end of buffer while reading symbol name length at symbol {}", i);
-        }
+    let mut pos = offset as usize;
+
+    for _ in 0..length {
         let name_len = buffer[pos] as usize;
         pos += 1;
-        if pos + name_len > buffer_len {
-            panic!("Unexpected end of buffer while reading symbol name at symbol {}", i);
-        }
         let name = String::from_utf8(buffer[pos..pos + name_len].to_vec()).unwrap();
         pos += name_len;
-        if pos + 4 > buffer_len {
-            panic!("Unexpected end of buffer while reading symbol address at symbol {}", i);
-        }
+
         let address = u32::from_le_bytes([
             buffer[pos],
             buffer[pos + 1],
@@ -82,53 +75,55 @@ fn read_symbols(buffer: &[u8], offset: u32) -> HashMap<String, u32> {
             buffer[pos + 3],
         ]);
         pos += 4;
-        println!("Read symbol: {} at address: {}", name, address); // Debug print
+
         symbols.insert(name, address);
     }
+
     symbols
 }
-fn read_relocations(buffer: &[u8], offset: u32) -> Vec<(String, u32)> {
-    let mut relocations = Vec::new();
-    let buffer_len = buffer.len();
-    if (offset as usize) + 4 > buffer_len {
-        panic!("Invalid relocation table offset");
-    }
-    let count = u32::from_le_bytes([
-        buffer[offset as usize],
-        buffer[offset as usize + 1],
-        buffer[offset as usize + 2],
-        buffer[offset as usize + 3],
-    ]);
-    let mut pos = offset as usize + 4;
-    for _ in 0..count {
-        if pos + 4 > buffer_len {
-            panic!("Unexpected end of buffer while reading symbol index");
-        }
-        let symbol_index = u32::from_le_bytes([
+
+fn read_relocations(buffer: &[u8], offset: u32, length: u32) -> HashMap<String, Vec<u32>> {
+    let mut relocations: HashMap<String, Vec<u32>> = HashMap::new();
+    let mut pos = offset as usize;
+
+    for _ in 0..length {
+        let symbol_name_length = buffer[pos] as usize;
+        pos += 1;
+
+        let symbol_name =
+            String::from_utf8(buffer[pos..pos + symbol_name_length].to_vec()).unwrap();
+        pos += symbol_name_length;
+
+        let locations_length = u32::from_le_bytes([
             buffer[pos],
             buffer[pos + 1],
             buffer[pos + 2],
             buffer[pos + 3],
         ]);
         pos += 4;
-        if pos + 4 > buffer_len {
-            panic!("Unexpected end of buffer while reading relocation address");
+
+        for _ in 0..locations_length {
+            let relocation = u32::from_le_bytes([
+                buffer[pos],
+                buffer[pos + 1],
+                buffer[pos + 2],
+                buffer[pos + 3],
+            ]);
+            pos += 4;
+
+            if let Some(vec) = relocations.get_mut(&symbol_name) {
+                vec.push(relocation);
+            } else {
+                relocations.insert(symbol_name.clone(), vec![relocation]);
+            }
         }
-        let address = u32::from_le_bytes([
-            buffer[pos],
-            buffer[pos + 1],
-            buffer[pos + 2],
-            buffer[pos + 3],
-        ]);
-        pos += 4;
-        relocations.push((symbol_index.to_string(), address));
     }
     relocations
 }
 
 fn link_object_files(paths: &[String], output_path: &str) -> io::Result<()> {
     let mut combined_symbols = HashMap::new();
-    let mut combined_relocations = Vec::new();
+    let mut combined_relocations = HashMap::<String, Vec<u32>>::new();
     let mut combined_code = Vec::new();
     let mut base_address = 0;
 
@@ -139,15 +134,23 @@ fn link_object_files(paths: &[String], output_path: &str) -> io::Result<()> {
             combined_symbols.insert(name, address + base_address);
         }
 
-        for (symbol, address) in obj_file.relocations {
-            combined_relocations.push((symbol, address + base_address));
+        for (symbol, mut addresses) in obj_file.relocations {
+            for address in addresses.iter_mut() {
+                *address += base_address;
+            }
+            if let Some(existing_addresses) = combined_relocations.get_mut(&symbol) {
+                existing_addresses.extend(addresses);
+            } else {
+                combined_relocations.insert(symbol, addresses);
+            }
         }
 
         combined_code.extend(obj_file.code);
         base_address = combined_code.len() as u32;
     }
 
-    if let Err(e) = apply_relocations(&mut combined_code, &combined_symbols, &combined_relocations) {
+    if let Err(e) = apply_relocations(&mut combined_code, &combined_symbols, &combined_relocations)
+    {
         eprintln!("Linking failed: {}", e);
         exit(1);
     }
@@ -161,14 +164,16 @@ fn link_object_files(paths: &[String], output_path: &str) -> io::Result<()> {
 fn apply_relocations(
     code: &mut Vec<u8>,
     symbols: &HashMap<String, u32>,
-    relocations: &[(String, u32)],
+    relocations: &HashMap<String, Vec<u32>>,
 ) -> Result<(), String> {
     let mut unresolved_symbols = Vec::new();
 
-    for (symbol, address) in relocations {
+    for (symbol, addresses) in relocations {
         if let Some(&symbol_address) = symbols.get(symbol) {
             let bytes = symbol_address.to_le_bytes();
-            code[*address as usize..*address as usize + 4].copy_from_slice(&bytes);
+            for &address in addresses {
+                code[address as usize..address as usize + 4].copy_from_slice(&bytes);
+            }
         } else {
             unresolved_symbols.push(symbol.clone());
         }

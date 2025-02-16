@@ -7,9 +7,48 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug",
-            "program": "${workspaceFolder}/<executable file>",
-            "args": ["main.o", "linked.o", "-o", "main"],
+            "name": "Debug executable 'link32'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=link32",
+                    "--package=link32"
+                ],
+                "filter": {
+                    "name": "link32",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "-o",
+                "main",
+                "linked.o",
+                "main.o"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'link32'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=link32",
+                    "--package=link32"
+                ],
+                "filter": {
+                    "name": "link32",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "-o",
+                "main",
+                "linked.o",
+                "main.o"
+            ],
             "cwd": "${workspaceFolder}"
         }
     ]
